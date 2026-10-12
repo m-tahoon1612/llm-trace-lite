@@ -1,11 +1,12 @@
 """Thin client for OpenAI-compatible /chat/completions that logs every call.
 
-Uses urllib so there's no dependency on the openai package. Should work with anything
+Uses urllib so there's no dependency on the openai package. Works with anything
 that speaks the same API (OpenAI, vLLM, Ollama's /v1, LiteLLM proxy, ...).
 """
 
 import json
 import os
+import random
 import time
 import urllib.error
 import urllib.request
@@ -14,28 +15,36 @@ from .pricing import estimate_cost
 from .store import Call, TraceStore
 
 
+def _approx_tokens(text: str) -> int:
+    # ~4 chars per token for English. Only used in mock mode.
+    return max(1, len(text) // 4)
+
+
 class TracedClient:
     def __init__(self, store: TraceStore | None = None, base_url: str | None = None,
-                 api_key: str | None = None, timeout: float = 60):
+                 api_key: str | None = None, mock: bool = False, timeout: float = 60,
+                 seed: int | None = None):
         self.store = store or TraceStore()
         self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL")
                          or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.mock = mock
         self.timeout = timeout
-        if not self.api_key:
-            raise ValueError("no API key: set OPENAI_API_KEY")
+        self._rng = random.Random(seed)
+        if not mock and not self.api_key:
+            raise ValueError("no API key: set OPENAI_API_KEY or use mock=True")
 
     def chat(self, model: str, messages: list[dict], tag: str | None = None, **params) -> dict:
         body = {"model": model, "messages": messages, **params}
         start = time.perf_counter()
         try:
-            resp = self._post(body)
+            resp = self._mock(body) if self.mock else self._post(body)
         except Exception as e:  # record failures too, then re-raise
             self.store.record(Call(model=model, latency_ms=self._elapsed(start),
                                    prompt_tokens=None, completion_tokens=None, cost_usd=None,
                                    status="error", tag=tag, request=body, error=str(e)[:500]))
             raise
-        latency = self._elapsed(start)
+        latency = resp.pop("_mock_latency_ms", None) or self._elapsed(start)
 
         usage = resp.get("usage") or {}
         pt, ct = usage.get("prompt_tokens"), usage.get("completion_tokens")
@@ -64,3 +73,22 @@ class TracedClient:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"HTTP {e.code}: {e.read()[:300].decode(errors='replace')}") from e
+
+    def _mock(self, body: dict) -> dict:
+        prompt = " ".join(str(m.get("content", "")) for m in body["messages"])
+        if "FAIL" in prompt:
+            raise RuntimeError("mock: simulated upstream error")
+        reply = f"(mock reply to {len(body['messages'])} message(s))"
+        pt = _approx_tokens(prompt) + 4 * len(body["messages"])
+        ct = self._rng.randint(20, body.get("max_tokens") or 400)
+        # bigger models are slower; rough numbers, only for demo data
+        base = 900 if "mini" not in body["model"] and "haiku" not in body["model"] else 350
+        return {
+            "id": f"mock-{self._rng.randint(0, 10**9)}",
+            "model": body["model"],
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": reply},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": pt, "completion_tokens": ct,
+                      "total_tokens": pt + ct},
+            "_mock_latency_ms": int(base + ct * self._rng.uniform(4, 12)),
+        }
