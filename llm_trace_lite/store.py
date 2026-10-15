@@ -74,5 +74,26 @@ class TraceStore:
         args.append(limit)
         return self.conn.execute(sql, args).fetchall()
 
+    def summary(self, since_ts: float | None = None) -> list[sqlite3.Row]:
+        where = "WHERE ts >= ?" if since_ts else ""
+        args = [since_ts] if since_ts else []
+        # no percentile functions in sqlite, the CLI computes p95 from latencies()
+        return self.conn.execute(
+            f"""
+            SELECT model,
+                   count(*)                                   AS calls,
+                   sum(status = 'error')                      AS errors,
+                   round(avg(CASE WHEN status = 'ok' THEN latency_ms END)) AS avg_ms,
+                   max(latency_ms)                                        AS max_ms,
+                   coalesce(sum(prompt_tokens), 0)            AS prompt_tokens,
+                   coalesce(sum(completion_tokens), 0)        AS completion_tokens,
+                   sum(cost_usd)                              AS cost_usd
+            FROM calls {where}
+            GROUP BY model
+            ORDER BY cost_usd DESC NULLS LAST
+            """,
+            args,
+        ).fetchall()
+
     def close(self):
         self.conn.close()
