@@ -10,6 +10,12 @@ def _fmt_cost(v) -> str:
     return "-" if v is None else f"${v:.6f}"
 
 
+def _p95(values: list[int]) -> int:
+    if not values:
+        return 0
+    return values[min(len(values) - 1, int(round(0.95 * (len(values) - 1))))]
+
+
 def _table(head: list[str], rows: list[list]) -> str:
     """Plain text table; numbers right-aligned, everything else left."""
     numeric = [all(isinstance(r[i], (int, float)) or str(r[i]).startswith("$") or r[i] == "-"
@@ -48,9 +54,9 @@ def cmd_summary(store: TraceStore, args) -> int:
     for r in rows:
         total += r["cost_usd"] or 0
         out.append([r["model"], r["calls"], r["errors"], int(r["avg_ms"] or 0),
-                    r["prompt_tokens"],
+                    _p95(store.latencies(r["model"])), r["prompt_tokens"],
                     r["completion_tokens"], _fmt_cost(r["cost_usd"])])
-    print(_table(["model", "calls", "err", "avg_ms", "in_tok", "out_tok", "cost"], out))
+    print(_table(["model", "calls", "err", "avg_ms", "p95_ms", "in_tok", "out_tok", "cost"], out))
     print(f"\ntotal estimated cost: ${total:.4f}  (approximate, see pricing.py)")
     return 0
 

@@ -95,5 +95,10 @@ class TraceStore:
             args,
         ).fetchall()
 
+    def latencies(self, model: str) -> list[int]:
+        rows = self.conn.execute(
+            "SELECT latency_ms FROM calls WHERE model = ? AND status = 'ok' ORDER BY latency_ms", (model,))
+        return [r[0] for r in rows]
+
     def close(self):
         self.conn.close()
