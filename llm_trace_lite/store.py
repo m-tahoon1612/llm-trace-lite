@@ -1,8 +1,10 @@
+import csv
 import json
 import os
 import sqlite3
 import time
 from dataclasses import dataclass
+from typing import IO
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS calls (
@@ -99,6 +101,15 @@ class TraceStore:
         rows = self.conn.execute(
             "SELECT latency_ms FROM calls WHERE model = ? AND status = 'ok' ORDER BY latency_ms", (model,))
         return [r[0] for r in rows]
+
+    def export_csv(self, fh: IO[str]) -> int:
+        w = csv.writer(fh)
+        w.writerow(COLUMNS)
+        n = 0
+        for row in self.conn.execute(f"SELECT {', '.join(COLUMNS)} FROM calls ORDER BY id"):
+            w.writerow(list(row))
+            n += 1
+        return n
 
     def close(self):
         self.conn.close()

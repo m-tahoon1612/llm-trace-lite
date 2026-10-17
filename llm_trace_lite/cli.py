@@ -61,6 +61,19 @@ def cmd_summary(store: TraceStore, args) -> int:
     return 0
 
 
+def cmd_export(store: TraceStore, args) -> int:
+    if not args.csv:
+        print("only --csv is supported for now", file=sys.stderr)
+        return 2
+    if args.out == "-":
+        n = store.export_csv(sys.stdout)
+    else:
+        with open(args.out, "w", newline="", encoding="utf-8") as fh:
+            n = store.export_csv(fh)
+        print(f"wrote {n} rows to {args.out}", file=sys.stderr)
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="trace", description="Inspect recorded LLM calls.")
     p.add_argument("--db", default=None, help=f"sqlite file (default: {default_path()})")
@@ -73,10 +86,14 @@ def main(argv=None) -> int:
     sm = sub.add_parser("summary", help="per-model totals")
     sm.add_argument("--hours", type=float, help="only the last N hours")
 
+    ex = sub.add_parser("export", help="dump all calls")
+    ex.add_argument("--csv", action="store_true")
+    ex.add_argument("-o", "--out", default="-", help="file path, '-' for stdout")
+
     args = p.parse_args(argv)
     store = TraceStore(args.db)
     try:
-        return {"list": cmd_list, "summary": cmd_summary}[args.cmd](store, args)
+        return {"list": cmd_list, "summary": cmd_summary, "export": cmd_export}[args.cmd](store, args)
     finally:
         store.close()
 
