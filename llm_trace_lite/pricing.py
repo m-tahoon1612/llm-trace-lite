@@ -15,7 +15,11 @@ PRICES: dict[str, tuple[float, float]] = {
 
 
 def lookup(model: str) -> tuple[float, float] | None:
-    return PRICES.get(model)
+    if model in PRICES:
+        return PRICES[model]
+    # dated snapshots like gpt-4o-mini-2024-07-18 -> longest matching prefix
+    matches = [k for k in PRICES if model.startswith(k)]
+    return PRICES[max(matches, key=len)] if matches else None
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
