@@ -64,3 +64,10 @@ OpenAI-compatible proxy.
 ```
 python -m unittest discover -s tests -t .
 ```
+
+## Limitations
+
+- No streaming support yet (`stream=True` responses aren't parsed).
+- Request and response text are stored as-is. Don't point this at real user data
+  without thinking about it. TODO: `--redact` option.
+- Mock token counts use a 4-characters-per-token guess.
